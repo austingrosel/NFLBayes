@@ -75,3 +75,9 @@ server <- function(input, output) {
 
 # Run the application 
 shinyApp(ui = ui, server = server)
+
+
+# ggplot(Data, aes(x=Rel)) +
+#     geom_density(aes(y=..density.., fill=factor(cut)), position="stack") +
+#     stat_function(fun = dnorm, args = list(mean = Rel.mean, sd = Rel.sd))
+
