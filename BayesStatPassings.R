@@ -1,5 +1,7 @@
 library(readr)
+library(plyr)
 library(dplyr)
+library(purrr)
 library(broom)
 library(ggplot2)
 library(nflscrapR)
@@ -24,10 +26,12 @@ pbp_2017 = read_csv("https://raw.githubusercontent.com/ryurko/nflscrapR-data/mas
 pbp_2018 = read_csv("https://raw.githubusercontent.com/ryurko/nflscrapR-data/master/play_by_play_data/regular_season/reg_pbp_2018.csv")
 pbp_2019 = read_csv("https://raw.githubusercontent.com/ryurko/nflscrapR-data/master/play_by_play_data/regular_season/reg_pbp_2019.csv")
 
-pbp = rbind(pbp_2009,pbp_2010,pbp_2011,pbp_2012,pbp_2013,
-            pbp_2014, pbp_2015, pbp_2016, pbp_2017, pbp_2018, pbp_2019)
+pbp = rbind(pbp_2009,pbp_2010,pbp_2011,pbp_2012,pbp_2013,pbp_2014, pbp_2015, pbp_2016, pbp_2017, pbp_2018, pbp_2019)
+
+rm(pbp_2009,pbp_2010,pbp_2011,pbp_2012,pbp_2013, pbp_2014, pbp_2015, pbp_2016, pbp_2017, pbp_2018, pbp_2019)
 
 games = read_csv("https://raw.githubusercontent.com/leesharpe/nfldata/master/data/games.csv")
+
 pbp = pbp %>% 
   left_join(., games %>% select(game_id, season), by = c("game_id"))
 
@@ -55,15 +59,15 @@ passes = pbp %>%
 
 m = MASS::fitdistr(passes %>% filter(attempts > 100) %>% pull(ypa), 'normal')
 
-passes %<>%
+passes = passes %>%
   filter(attempts > 10) %>%
   mutate(
-    p_y_m = as.numeric(m$estimate[1]),
-    p_y_s = as.numeric(m$estimate[2])
+    prior_ypa_mu = as.numeric(m$estimate[1]),
+    prior_ypa_sd = as.numeric(m$estimate[2])
   ) %>%
   mutate(
-    eb_ypa = est_mean(p_y_m, p_y_s, ypa, data_sigma, attempts),
-    eb_ypa_sd = est_sd(p_y_s, data_sigma, attempts)
+    eb_ypa = est_mean(prior_ypa_mu, prior_ypa_sd, ypa, data_sigma, attempts),
+    eb_ypa_sd = est_sd(prior_ypa_sd, data_sigma, attempts)
   )
 
 m <- MASS::fitdistr(passes %>% filter(attempts > 100) %>% pull(int.rate), dbeta,
@@ -128,7 +132,6 @@ qbs = passes %>%
   left_join(., sacks %>% select(-dropbacks), by = c("passer_player_id")) %>%
   ungroup()
 
-
 sim_df = qbs %>% ungroup() %>% dplyr::select(passer_player_id, dropbacks, eb_ypa, est_int.rate, est_sack.rate, eb_ypc) %>% filter(dropbacks > 50)
 sim_matrix = as.data.frame(as.matrix(dist(sim_df[,c(3:6)])))
 rownames(sim_matrix) = sim_df$passer_player_name
@@ -138,36 +141,24 @@ this_name = "L.Jackson"
 rownames(sim_matrix[order(sim_matrix[rownames(sim_matrix) == this_name]),])[2:6]
 
 
-team_colors = read_csv("https://raw.githubusercontent.com/leesharpe/nfldata/master/data/teamcolors.csv")
+team_colors = read_csv("https://raw.githubusercontent.com/leesharpe/nfldata/master/data/teamcolors.csv") %>%
+  mutate(color = ifelse(team == "JAX", color2, 
+                        ifelse(team == "LAC", color2, color))) %>%
+  mutate(color2 = ifelse(team == "BAL", color3,
+                         ifelse(team == "NYJ", "#FFFFFF",
+                                ifelse(team == "IND", '#FFFFFF',
+                                       ifelse(team == "JAX", color3, 
+                                              ifelse(team == "LAC", color3, color2))))))
 
-rosters = nflscrapR::get_season_rosters(season = 2019, 
-                                        teams = pbp %>% distinct(posteam) %>% pull(posteam),
-                                        )
 rosters = purrr::map_dfr(2019:2009, teams = pbp %>% distinct(posteam) %>% pull(posteam), nflscrapR::get_season_rosters)
 
 rosters_copy = rosters_copy %>% ungroup()
-
 rosters = rosters_copy[!duplicated(rosters_copy[,c(7)]),] %>%
   select(gsis_id, full_player_name, team) %>%
   mutate(team = ifelse(team == "JAC", "JAX",
                        ifelse(team == "LA", "LAR", team))) %>%
-  left_join(., team_colors %>% select(team, color) %>% rename(team_color = color), by = "team")
-
+  left_join(., team_colors %>% select(team, color, color2) %>% rename(team_color=color, sec_color=color2), by = "team")
 
 qbs = qbs %>% left_join(., rosters, by = c("passer_player_id"="gsis_id"))
 
-
-ggplot(baker, aes(x, density)) +
-  geom_line(aes(color = unique(team_color)), size = 1.5, alpha = 1) +
-  #scale_color_manual(values = unique(d2$team_color)) +
-  #geom_line(aes(x, prior), color = 'black', lty = 2) +
-  scale_color_identity(aesthetics = c("color", "fill")) +
-  facet_wrap(~ type, scales = "free") +
-  theme_light() +
-  theme(
-    axis.title.y=element_blank(),
-    axis.text.y=element_blank(),
-    axis.ticks.y=element_blank(),
-    legend.position="bottom"
-  )
 
