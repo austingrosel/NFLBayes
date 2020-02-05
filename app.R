@@ -134,10 +134,6 @@ server <- function(input, output, session) {
           rV$sel = rV$sel[!is.na(rV$sel)]
       }
       tableProxy %>% selectRows(NULL)
-<<<<<<< HEAD
-=======
-      
->>>>>>> a5a2730c8444b25f1ca60e0fc724a3c2153d8cfe
       rV$selected_players = plot_data_tbl()[rV$sel,] %>% pull(Player)
     })
     
@@ -158,7 +154,6 @@ server <- function(input, output, session) {
         value = c(sim_norm(player1, player2, qbs, 'eb_ypa', 'eb_ypa_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypa', 'eb_ypa_sd'),
                   sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'),
                   1 - sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'), sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'),
-<<<<<<< HEAD
                   1 - sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'), sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'))) %>% 
           dplyr::mutate(player = as.character(player),
                         value = value * 100) %>%
@@ -170,18 +165,6 @@ server <- function(input, output, session) {
       }
       
       plotting_df$stat = factor(plotting_df$stat, levels = c("SK%", "INT%", "YPC", "YPA"))
-=======
-                  1 - sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'), sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'))
-        ) %>% 
-        dplyr::mutate(player = as.character(player),
-                      value = value * 100) %>%
-        dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color, sec_color), by = c("player"="full_player_name"))
-      
-      if(length(unique(plotting_df$team_color)) == 1) {
-        player2_sec_color = unique(plotting_df$sec_color[plotting_df$player == player2])
-        plotting_df$team_color[plotting_df$player == player2] = player2_sec_color
-      }
->>>>>>> a5a2730c8444b25f1ca60e0fc724a3c2153d8cfe
       
       ggplot(plotting_df, aes(x = stat, fill = team_color, weight = value)) +
         geom_bar(position="fill") +
