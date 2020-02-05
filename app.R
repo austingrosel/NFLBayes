@@ -8,8 +8,8 @@ ui <- fluidPage(
                   arrange(full_player_name) %>% 
                   pull(full_player_name), multiple = T),
     plotOutput('plt'),
-    actionButton("enter_button", "Enter..."),
     DTOutput('tbl'),
+    actionButton("enter_button", "Enter..."),
     plotOutput('comparison_plt')
 )
 
@@ -61,8 +61,9 @@ server <- function(input, output) {
         asdf = data()
         ggplot(asdf, aes(group = full_player_name)) +
             geom_line(aes(x, density, color = team_color), size = 1.5, alpha = 0.9) +
+            geom_ribbon(aes(x, ymin = 0, ymax = density, fill = team_color), alpha = 0.3) +
             geom_line(aes(x, prior), color = 'black', lty = 2) +
-            scale_color_identity(aesthetics = "color") +
+            scale_color_identity(aesthetics = c("color", "fill")) +
             facet_wrap(~ type, scales = "free") +
             theme_light() +
             theme(
@@ -82,7 +83,7 @@ server <- function(input, output) {
       
       df = qbs %>%
         filter(full_player_name %in% input$select_player) %>%
-        select(full_player_name, team, est_draft_year, attempts, eb_ypa, carries, eb_ypc, est_sack.rate, est_int.rate, team_color, sec_color) %>%
+        select(full_player_name, team, attempts, eb_ypa, carries, eb_ypc, est_sack.rate, est_int.rate, team_color, sec_color) %>%
         rename(Player=full_player_name, last_team=team, est_ypa=eb_ypa, est_ypc=eb_ypc)
     })
     
@@ -104,16 +105,14 @@ server <- function(input, output) {
         rV$sel <- input$tbl_rows_selected
         rV$sel = rV$sel[!is.na(rV$sel)]
       }
-      print(input$tbl_rows_selected)
+      tableProxy %>% selectRows(NULL)
+      
       rV$selected_players = plot_data_tbl()[rV$sel,] %>% pull(Player)
-      print(rV$selected_players)
     })
-    
-    
     
     output$comparison_plt = renderPlot({
       validate(
-        need(length(rV$selected_players) == 2, 'Need to select two players to compare.')
+        need(length(rV$selected_players[!is.na(rV$selected_players)]) == 2, 'Need to select two players to compare.')
       )
       
       player1 = rV$selected_players[1]
@@ -133,8 +132,6 @@ server <- function(input, output) {
                       value = value * 100) %>%
         dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color), by = c("player"="full_player_name"))
       
-      tableProxy %>% selectRows(NULL)
-      
       ggplot(plotting_df, aes(x = stat, fill = team_color, weight = value)) +
         geom_bar(position="fill") +
         coord_flip() +
@@ -146,5 +143,4 @@ server <- function(input, output) {
     
 }
 
-# Run the application 
 shinyApp(ui = ui, server = server)
