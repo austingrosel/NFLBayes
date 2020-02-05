@@ -14,6 +14,26 @@ est_sd = function(prior_sigma, data_sigma, n) {
   return(sqrt(1/((1/prior_sigma^2) + (n/data_sigma^2))))
 }
 
+sim_norm = function(player1, player2, df, mu, sd) {
+  sim1 = rnorm(1e5, 
+               df %>% filter(full_player_name == player1) %>% pull(mu), 
+               df %>% filter(full_player_name == player1) %>% pull(sd))
+  sim2 = rnorm(1e5,
+               df %>% filter(full_player_name == player2) %>% pull(mu), 
+               df %>% filter(full_player_name == player2) %>% pull(sd))
+  round(mean(sim1 > sim2), 2)
+}
+
+sim_beta = function(player1, player2, df, a1, b1) {
+  sim1 = rbeta(1e5, 
+               df %>% filter(full_player_name == player1) %>% pull(a1), 
+               df %>% filter(full_player_name == player1) %>% pull(b1))
+  sim2 = rbeta(1e5,
+               df %>% filter(full_player_name == player2) %>% pull(a1), 
+               df %>% filter(full_player_name == player2) %>% pull(b1))
+  round(mean(sim1 > sim2), 2)
+}
+
 pbp_2009 = read_csv("https://raw.githubusercontent.com/ryurko/nflscrapR-data/master/play_by_play_data/regular_season/reg_pbp_2009.csv")
 pbp_2010 = read_csv("https://raw.githubusercontent.com/ryurko/nflscrapR-data/master/play_by_play_data/regular_season/reg_pbp_2010.csv")
 pbp_2011 = read_csv("https://raw.githubusercontent.com/ryurko/nflscrapR-data/master/play_by_play_data/regular_season/reg_pbp_2011.csv")
@@ -151,7 +171,7 @@ team_colors = read_csv("https://raw.githubusercontent.com/leesharpe/nfldata/mast
                                               ifelse(team == "LAC", color3, color2))))))
 
 rosters = purrr::map_dfr(2019:2009, teams = pbp %>% distinct(posteam) %>% pull(posteam), nflscrapR::get_season_rosters)
-
+rosters_copy = rosters
 rosters_copy = rosters_copy %>% ungroup()
 rosters = rosters_copy[!duplicated(rosters_copy[,c(7)]),] %>%
   select(gsis_id, full_player_name, team) %>%
@@ -160,5 +180,4 @@ rosters = rosters_copy[!duplicated(rosters_copy[,c(7)]),] %>%
   left_join(., team_colors %>% select(team, color, color2) %>% rename(team_color=color, sec_color=color2), by = "team")
 
 qbs = qbs %>% left_join(., rosters, by = c("passer_player_id"="gsis_id"))
-
 

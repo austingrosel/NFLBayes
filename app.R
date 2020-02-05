@@ -1,20 +1,47 @@
 library(shiny)
 library(DT)
+library(scales)
+library(JLutils)
 
-# Define UI for application that draws a histogram
 ui <- fluidPage(
     titlePanel("NFL QB Comparisons"),
-    selectInput('select_player', 'Player:', choices = qbs %>%
-                  arrange(full_player_name) %>% 
-                  pull(full_player_name), multiple = T),
+    
+    fluidRow(
+        column(3,
+               selectInput("select_draft", "Draft Year:", 
+                           choices = c("", qbs %>%
+                                           filter(!is.na(est_draft_year)) %>%
+                                           arrange(est_draft_year) %>% 
+                                           pull(est_draft_year)), selected = "")
+               ),
+        column(3,
+               selectInput('select_player', 'Player:', 
+                           choices = qbs %>%
+                               arrange(full_player_name) %>% 
+                               pull(full_player_name), 
+                           multiple = T)
+               )
+    ),
+    
     plotOutput('plt'),
-    actionButton("enter_button", "Enter..."),
     DTOutput('tbl'),
+    actionButton("enter_button", "Enter..."),
     plotOutput('comparison_plt')
 )
 
-# Define server logic required to draw a histogram
-server <- function(input, output) {
+server <- function(input, output, session) {
+    
+    observe({
+        if(input$select_draft != "") {
+            updateSelectInput(session, 
+                              "select_player", 
+                              "Player:",
+                              choices = qbs %>%
+                                  filter(est_draft_year == input$select_draft) %>%
+                                  arrange(full_player_name) %>% 
+                                  pull(full_player_name))
+        }
+    })
 
     data = reactive({
         validate(
@@ -61,11 +88,13 @@ server <- function(input, output) {
         asdf = data()
         ggplot(asdf, aes(group = full_player_name)) +
             geom_line(aes(x, density, color = team_color), size = 1.5, alpha = 0.9) +
+            geom_ribbon(aes(x, ymin = 0, ymax = density, fill = team_color), alpha = 0.3) +
             geom_line(aes(x, prior), color = 'black', lty = 2) +
-            scale_color_identity(aesthetics = "color") +
+            scale_color_identity(aesthetics = c("color", "fill")) +
             facet_wrap(~ type, scales = "free") +
             theme_light() +
             theme(
+                strip.text.x = element_text(size = 14),
                 axis.title.y=element_blank(),
                 axis.text.y=element_blank(),
                 axis.ticks.y=element_blank(),
@@ -101,19 +130,16 @@ server <- function(input, output) {
         need(!is.null(input$tbl_rows_selected), 'No rows selected.')
       )
       if (length(input$tbl_rows_selected) == 2) {
-        rV$sel <- input$tbl_rows_selected
-        rV$sel = rV$sel[!is.na(rV$sel)]
+          rV$sel <- input$tbl_rows_selected
+          rV$sel = rV$sel[!is.na(rV$sel)]
       }
-      print(input$tbl_rows_selected)
+      tableProxy %>% selectRows(NULL)
       rV$selected_players = plot_data_tbl()[rV$sel,] %>% pull(Player)
-      print(rV$selected_players)
     })
-    
-    
     
     output$comparison_plt = renderPlot({
       validate(
-        need(length(rV$selected_players) == 2, 'Need to select two players to compare.')
+        need(length(rV$selected_players[!is.na(rV$selected_players)]) == 2, 'Need to select two players to compare.')
       )
       
       player1 = rV$selected_players[1]
@@ -129,11 +155,16 @@ server <- function(input, output) {
                   sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'),
                   1 - sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'), sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'),
                   1 - sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'), sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'))) %>% 
-        dplyr::mutate(player = as.character(player),
-                      value = value * 100) %>%
-        dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color), by = c("player"="full_player_name"))
+          dplyr::mutate(player = as.character(player),
+                        value = value * 100) %>%
+          dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color, sec_color), by = c("player"="full_player_name"))
       
-      tableProxy %>% selectRows(NULL)
+      if(length(unique(plotting_df$team_color)) == 1) {
+          player2_sec_color = unique(plotting_df$sec_color[plotting_df$player == player2])
+          plotting_df$team_color[plotting_df$player == player2] = player2_sec_color
+      }
+      
+      plotting_df$stat = factor(plotting_df$stat, levels = c("SK%", "INT%", "YPC", "YPA"))
       
       ggplot(plotting_df, aes(x = stat, fill = team_color, weight = value)) +
         geom_bar(position="fill") +
