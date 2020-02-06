@@ -3,9 +3,8 @@ library(DT)
 library(scales)
 library(JLutils)
 
-ui <- fluidPage(
+ui <- fluidPage(theme = shinythemes::shinytheme("flatly"),
     titlePanel("NFL QB Comparisons"),
-    
     fluidRow(
         column(3,
                selectInput("select_player", "Player:", 
@@ -14,7 +13,7 @@ ui <- fluidPage(
     ),
     plotOutput('plt'),
     DTOutput('tbl'),
-    actionButton("enter_button", "Enter..."),
+    actionButton("enter_button", "Compare Stats"),
     plotOutput('comparison_plt')
 )
 
@@ -75,15 +74,19 @@ server <- function(input, output, session) {
     
     output$plt <- renderPlot({
         asdf = data()
+        asdf$type_f = factor(asdf$type, levels = c("ypa", "ypc", "sack.rate", "int.rate" ))
         ggplot(asdf, aes(group = full_player_name)) +
             geom_line(aes(x, density, color = team_color), size = 1.5, alpha = 0.9) +
             geom_ribbon(aes(x, ymin = 0, ymax = density, fill = team_color), alpha = 0.3) +
             geom_line(aes(x, prior), color = 'black', lty = 2) +
             scale_color_identity(aesthetics = c("color", "fill")) +
-            facet_wrap(~ type, scales = "free") +
+            facet_wrap(~ type_f, scales = "free") +
             theme_light() +
+            xlab("Stat Value") +
             theme(
                 strip.text.x = element_text(size = 14),
+                strip.background = element_rect(fill = 'black'),
+                axis.text.x = element_text(size = 12),
                 axis.title.y=element_blank(),
                 axis.text.y=element_blank(),
                 axis.ticks.y=element_blank(),
@@ -104,11 +107,15 @@ server <- function(input, output, session) {
     })
     
     output$tbl = renderDT({
-      DT::datatable(plot_data_tbl(), selection = list(mode = 'multiple', selected = rV$sel)) %>% 
+      cols_to_hide = which(grepl("color", colnames(plot_data_tbl())))
+      
+      DT::datatable(plot_data_tbl()
+                    , options = list(paging = F, searching = F, columnDefs = list(list(visible=FALSE, targets=cols_to_hide)))
+                    , selection = list(mode = 'multiple', selected = rV$sel)) %>% 
         formatStyle('team_color', target = 'row', backgroundColor = JS("value")) %>%
         formatStyle('sec_color', target = 'row', color = JS("value"), fontWeight = 'bold') %>%
         formatRound(c('est_ypa', 'est_ypc'), 2) %>%
-        formatRound(c('est_sack.rate', 'est_int.rate'), 3)
+        formatPercentage(c('est_sack.rate', 'est_int.rate'), 1)
     })
     
     tableProxy <-  dataTableProxy('tbl')
