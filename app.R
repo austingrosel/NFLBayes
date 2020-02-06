@@ -8,21 +8,10 @@ ui <- fluidPage(
     
     fluidRow(
         column(3,
-               selectInput("select_draft", "Draft Year:", 
-                           choices = c("", qbs %>%
-                                           filter(!is.na(est_draft_year)) %>%
-                                           arrange(est_draft_year) %>% 
-                                           pull(est_draft_year)), selected = "")
-               ),
-        column(3,
-               selectInput('select_player', 'Player:', 
-                           choices = qbs %>%
-                               arrange(full_player_name) %>% 
-                               pull(full_player_name), 
-                           multiple = T)
+               selectInput("select_player", "Player:", 
+                           choices = c(""), multiple = T)
                )
     ),
-    
     plotOutput('plt'),
     DTOutput('tbl'),
     actionButton("enter_button", "Enter..."),
@@ -32,15 +21,15 @@ ui <- fluidPage(
 server <- function(input, output, session) {
     
     observe({
-        if(input$select_draft != "") {
-            updateSelectInput(session, 
-                              "select_player", 
-                              "Player:",
-                              choices = qbs %>%
-                                  filter(est_draft_year == input$select_draft) %>%
-                                  arrange(full_player_name) %>% 
-                                  pull(full_player_name))
-        }
+      qb_list = qbs %>% 
+        arrange(full_player_name) %>%
+        split(., .[,'est_draft_year']) %>% 
+        lapply(., function(x) x %>% pull('full_player_name'))
+      qb_list = qb_list[order(names(qb_list), decreasing = T)]
+      updateSelectInput(session,
+                        "select_player", 
+                        "Player:",
+                        choices = qb_list)
     })
 
     data = reactive({
@@ -108,7 +97,6 @@ server <- function(input, output, session) {
       validate(
         need(length(input$select_player) > 0, 'Select a player.')
       )
-      
       df = qbs %>%
         filter(full_player_name %in% input$select_player) %>%
         select(full_player_name, team, attempts, eb_ypa, carries, eb_ypc, est_sack.rate, est_int.rate, team_color, sec_color) %>%
@@ -172,7 +160,12 @@ server <- function(input, output, session) {
         scale_y_continuous(labels=percent) +
         scale_color_identity(aesthetics = "fill") +
         theme_minimal() +
-        geom_label(stat = "fill_labels", color = 'white')
+        geom_label(stat = "fill_labels", color = 'white') +
+        xlab("Stat") + ylab("Percent") +
+        theme(
+          axis.text = element_text(size = 12),
+          axis.title = element_text(size = 12)
+        )
     })
     
 }
