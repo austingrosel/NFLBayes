@@ -13,8 +13,31 @@ ui <- fluidPage(theme = shinythemes::shinytheme("flatly"),
     ),
     plotOutput('plt'),
     DTOutput('tbl'),
-    actionButton("enter_button", "Compare Stats"),
-    plotOutput('comparison_plt')
+    fluidRow(
+      column(12, align = 'center',
+             actionButton("enter_button", "Compare Stats")
+             )
+    ),
+    br(),
+    fluidRow(
+      column(2, align = 'center',
+             uiOutput('player1_text'),
+             br(),
+             fluidRow(
+               uiOutput('player1_img')
+             )
+             ),
+      column(8, align = 'center',
+             plotOutput('comparison_plt')
+             ),
+      column(2, align = 'center',
+             uiOutput('player2_text'),
+             br(),
+             fluidRow(
+               uiOutput('player2_img')
+             )
+        )
+    )
 )
 
 server <- function(input, output, session) {
@@ -130,6 +153,33 @@ server <- function(input, output, session) {
       }
       tableProxy %>% selectRows(NULL)
       rV$selected_players = plot_data_tbl()[rV$sel,] %>% pull(Player)
+    })
+    
+    players_df = reactive({
+      validate(
+        need(length(rV$selected_players[!is.na(rV$selected_players)]) == 2, 'Need to select two players to compare.')
+      )
+      df = data.frame(player = c(rV$selected_players[1], rV$selected_players[2]))
+      df = df %>%
+        dplyr::mutate(player = as.character(player)) %>%
+        dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color, sec_color, team_logo), by = c("player"="full_player_name"))
+      df %>% arrange(desc(team_color))
+    })
+    
+    output$player1_text = renderUI({
+      HTML(paste("<font color=\"", players_df()$team_color[1],"\"><b>", players_df()$player[1], "</b></font>"))
+    })
+    
+    output$player1_img = renderUI({
+      img(src=as.character(players_df()$team_logo[1]), align = "center", height = '100px', weight = '100px')
+    })
+    
+    output$player2_text = renderText({
+      HTML(paste("<font color=\"", players_df()$team_color[2],"\"><b>", players_df()$player[2], "</b></font>"))
+    })
+    
+    output$player2_img = renderUI({
+      img(src=as.character(players_df()$team_logo[2]), align = "center", height = '100px', weight = '100px')
     })
     
     output$comparison_plt = renderPlot({
