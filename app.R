@@ -4,7 +4,7 @@ library(scales)
 library(JLutils)
 
 ui <- fluidPage(theme = shinythemes::shinytheme("flatly"),
-    titlePanel("NFL QB Comparisons"),
+    titlePanel("NFL QB Bayesian Stat Comparisons"),
     fluidRow(
         column(3,
                selectInput("select_player", "Player:", 
@@ -71,7 +71,7 @@ server <- function(input, output, session) {
             ) %>%
             bind_rows(
                 selected_qb_df %>%
-                    tidyr::crossing(x = seq(0, 0.1, 0.0002)) %>%
+                    tidyr::crossing(x = seq(0, 0.15, 0.00002)) %>%
                     ungroup() %>%
                     mutate(density = dbeta(x, int_alpha1, int_beta1),
                            prior = dbeta(x, int_alpha0, int_beta0),
@@ -79,7 +79,7 @@ server <- function(input, output, session) {
             ) %>%
             bind_rows(
                 selected_qb_df %>%
-                    tidyr::crossing(x = seq(0, 0.15, 0.0002)) %>%
+                    tidyr::crossing(x = seq(0, 0.15, 0.00002)) %>%
                     ungroup() %>%
                     mutate(density = dbeta(x, sack_alpha1, sack_beta1),
                            prior = dbeta(x, sack_alpha0, sack_beta0),
@@ -96,6 +96,7 @@ server <- function(input, output, session) {
     })
     
     output$plt <- renderPlot({
+        tableProxy %>% selectRows(NULL)
         asdf = data()
         asdf$type_f = factor(asdf$type, levels = c("ypa", "ypc", "sack.rate", "int.rate" ))
         ggplot(asdf, aes(group = full_player_name)) +
@@ -131,7 +132,6 @@ server <- function(input, output, session) {
     
     output$tbl = renderDT({
       cols_to_hide = which(grepl("color", colnames(plot_data_tbl())))
-      
       DT::datatable(plot_data_tbl()
                     , options = list(paging = F, searching = F, columnDefs = list(list(visible=FALSE, targets=cols_to_hide)))
                     , selection = list(mode = 'multiple', selected = rV$sel)) %>% 
@@ -155,15 +155,38 @@ server <- function(input, output, session) {
       rV$selected_players = plot_data_tbl()[rV$sel,] %>% pull(Player)
     })
     
+    comparison_data = reactive({
+      validate(
+        need(length(rV$selected_players[!is.na(rV$selected_players)]) == 2, 'Need to select two players to compare.')
+      )
+      player1 = rV$selected_players[1]
+      player2 = rV$selected_players[2]
+      plotting_df = data.frame(
+        stat = c(rep("YPA", 2),
+                 rep("YPC", 2),
+                 rep("INT%",2),
+                 rep("SK%", 2)),
+        player = c(rep(c(player1, player2), 4)),
+        value = c(sim_norm(player1, player2, qbs, 'eb_ypa', 'eb_ypa_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypa', 'eb_ypa_sd'),
+                  sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'),
+                  1 - sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'), sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'),
+                  1 - sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'), sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'))) %>% 
+        dplyr::mutate(player = as.character(player),
+                      value = value * 100) %>%
+        dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color, sec_color, team_logo), by = c("player"="full_player_name"))
+      if(length(unique(plotting_df$team_color)) == 1) {
+        player2_sec_color = unique(plotting_df$sec_color[plotting_df$player == player2])
+        plotting_df$team_color[plotting_df$player == player2] = player2_sec_color
+      }
+      plotting_df$stat = factor(plotting_df$stat, levels = c("INT%", "SK%", "YPC", "YPA"))
+      plotting_df
+    })
+    
     players_df = reactive({
       validate(
         need(length(rV$selected_players[!is.na(rV$selected_players)]) == 2, 'Need to select two players to compare.')
       )
-      df = data.frame(player = c(rV$selected_players[1], rV$selected_players[2]))
-      df = df %>%
-        dplyr::mutate(player = as.character(player)) %>%
-        dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color, sec_color, team_logo), by = c("player"="full_player_name"))
-      df %>% arrange(desc(team_color))
+      comparison_data() %>% distinct(player, .keep_all = T) %>% arrange(desc(team_color))
     })
     
     output$player1_text = renderUI({
@@ -183,35 +206,7 @@ server <- function(input, output, session) {
     })
     
     output$comparison_plt = renderPlot({
-      validate(
-        need(length(rV$selected_players[!is.na(rV$selected_players)]) == 2, 'Need to select two players to compare.')
-      )
-      
-      player1 = rV$selected_players[1]
-      player2 = rV$selected_players[2]
-      
-      plotting_df = data.frame(
-        stat = c(rep("YPA", 2),
-                 rep("YPC", 2),
-                 rep("INT%",2),
-                 rep("SK%", 2)),
-        player = c(rep(c(player1, player2), 4)),
-        value = c(sim_norm(player1, player2, qbs, 'eb_ypa', 'eb_ypa_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypa', 'eb_ypa_sd'),
-                  sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'),
-                  1 - sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'), sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'),
-                  1 - sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'), sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'))) %>% 
-          dplyr::mutate(player = as.character(player),
-                        value = value * 100) %>%
-          dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color, sec_color), by = c("player"="full_player_name"))
-      
-      if(length(unique(plotting_df$team_color)) == 1) {
-          player2_sec_color = unique(plotting_df$sec_color[plotting_df$player == player2])
-          plotting_df$team_color[plotting_df$player == player2] = player2_sec_color
-      }
-      
-      plotting_df$stat = factor(plotting_df$stat, levels = c("SK%", "INT%", "YPC", "YPA"))
-      
-      ggplot(plotting_df, aes(x = stat, fill = team_color, weight = value)) +
+      ggplot(comparison_data(), aes(x = stat, fill = team_color, weight = value)) +
         geom_bar(position="fill") +
         coord_flip() +
         scale_y_continuous(labels=percent) +

@@ -62,7 +62,7 @@ passes = pbp %>%
   mutate(attempt = ifelse(sack == 1, 0, 1),
          same_td = ifelse(td_team == posteam, 1, 0)
          ) %>%
-  summarise(est_draft_year = min(season),
+  summarise(est_draft_year = min(season, na.rm = T),
             dropbacks = n(),
             attempts = sum(attempt),
             pass_yards = sum(attempt * yards_gained, na.rm = T),
@@ -152,15 +152,6 @@ qbs = passes %>%
   left_join(., sacks %>% select(-dropbacks), by = c("passer_player_id")) %>%
   ungroup()
 
-sim_df = qbs %>% ungroup() %>% dplyr::select(passer_player_id, dropbacks, eb_ypa, est_int.rate, est_sack.rate, eb_ypc) %>% filter(dropbacks > 50)
-sim_matrix = as.data.frame(as.matrix(dist(sim_df[,c(3:6)])))
-rownames(sim_matrix) = sim_df$passer_player_name
-colnames(sim_matrix) = sim_df$passer_player_name
-
-this_name = "L.Jackson"
-rownames(sim_matrix[order(sim_matrix[rownames(sim_matrix) == this_name]),])[2:6]
-
-
 team_colors = read_csv("https://raw.githubusercontent.com/leesharpe/nfldata/master/data/teamcolors.csv") %>%
   mutate(color = ifelse(team == "JAX", color2, 
                         ifelse(team == "LAC", color2, color))) %>%
@@ -168,7 +159,8 @@ team_colors = read_csv("https://raw.githubusercontent.com/leesharpe/nfldata/mast
                          ifelse(team == "NYJ", "#FFFFFF",
                                 ifelse(team == "IND", '#FFFFFF',
                                        ifelse(team == "JAX", color3, 
-                                              ifelse(team == "LAC", color3, color2))))))
+                                              ifelse(team == "LAC", color3, color2)))))) %>%
+  left_join(., read_csv("https://raw.githubusercontent.com/leesharpe/nfldata/master/data/logos.csv"), by = "team")
 
 rosters = purrr::map_dfr(2019:2009, teams = pbp %>% distinct(posteam) %>% pull(posteam), nflscrapR::get_season_rosters)
 rosters_copy = rosters
@@ -177,7 +169,7 @@ rosters = rosters_copy[!duplicated(rosters_copy[,c(7)]),] %>%
   select(gsis_id, full_player_name, team) %>%
   mutate(team = ifelse(team == "JAC", "JAX",
                        ifelse(team == "LA", "LAR", team))) %>%
-  left_join(., team_colors %>% select(team, color, color2) %>% rename(team_color=color, sec_color=color2), by = "team")
+  left_join(., team_colors %>% select(team, color, color2, team_logo) %>% rename(team_color=color, sec_color=color2), by = "team")
 
 qbs = qbs %>% left_join(., rosters, by = c("passer_player_id"="gsis_id"))
 
