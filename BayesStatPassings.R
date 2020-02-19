@@ -52,6 +52,15 @@ rm(pbp_2009,pbp_2010,pbp_2011,pbp_2012,pbp_2013, pbp_2014, pbp_2015, pbp_2016, p
 
 games = read_csv("https://raw.githubusercontent.com/leesharpe/nfldata/master/data/games.csv")
 
+rosters = purrr::map_dfr(2019:2009, teams = pbp %>% distinct(posteam) %>% pull(posteam), nflscrapR::get_season_rosters)
+rosters_copy = rosters
+rosters_copy = rosters_copy %>% ungroup()
+
+rosters = rosters_copy[!duplicated(rosters_copy[,c(7)]),] %>%
+  select(gsis_id, full_player_name, position, team) %>%
+  mutate(team = ifelse(team == "JAC", "JAX",
+                       ifelse(team == "LA", "LAR", team)))
+
 pbp = pbp %>% 
   left_join(., games %>% select(game_id, season), by = c("game_id"))
 
@@ -67,7 +76,9 @@ passes = pbp %>%
             attempts = sum(attempt),
             pass_yards = sum(attempt * yards_gained, na.rm = T),
             pass_tds = sum(attempt * same_td * touchdown, na.rm = T),
-            ints = sum(interception)
+            ints = sum(interception),
+            pass_epa = mean(epa, na.rm = T),
+            pass_epa_sd = sd(epa, na.rm = T)
             ) %>%
   mutate(int.rate = ints/attempts) %>%
   left_join(., pbp %>%
@@ -75,30 +86,33 @@ passes = pbp %>%
               filter(play_type == 'pass', two_point_attempt != 1, sack == 0) %>%
               group_by(passer_player_id) %>%
               summarise(ypa = mean(yards_gained, na.rm = T),
-                        data_sigma = sd(yards_gained, na.rm = T)), by = c("passer_player_id"))
+                        ypa_sd = sd(yards_gained, na.rm = T)), by = c("passer_player_id"))
 
 m = MASS::fitdistr(passes %>% filter(attempts > 100) %>% pull(ypa), 'normal')
+n = MASS::fitdistr(passes %>% filter(attempts > 100) %>% pull(pass_epa), 'normal')
+x = MASS::fitdistr(passes %>% filter(attempts > 100) %>% pull(int.rate), dbeta,
+                    start = list(shape1 = 0.001, shape2 = 10), lower = 0.01)
 
 passes = passes %>%
   filter(attempts > 10) %>%
   mutate(
     prior_ypa_mu = as.numeric(m$estimate[1]),
-    prior_ypa_sd = as.numeric(m$estimate[2])
+    prior_ypa_sd = as.numeric(m$estimate[2]),
+    prior_pass_epa = as.numeric(n$estimate[1]),
+    prior_pass_epa_sd = as.numeric(n$estimate[2])
   ) %>%
   mutate(
-    eb_ypa = est_mean(prior_ypa_mu, prior_ypa_sd, ypa, data_sigma, attempts),
-    eb_ypa_sd = est_sd(prior_ypa_sd, data_sigma, attempts)
-  )
-
-m <- MASS::fitdistr(passes %>% filter(attempts > 100) %>% pull(int.rate), dbeta,
-                    start = list(shape1 = 0.001, shape2 = 10), lower = 0.01)
-
-passes = passes %>%
-  mutate(int_alpha0 = as.numeric(m$estimate[1]),
-         int_beta0 = as.numeric(m$estimate[2]),
+    eb_ypa = est_mean(prior_ypa_mu, prior_ypa_sd, ypa, ypa_sd, attempts),
+    eb_ypa_sd = est_sd(prior_ypa_sd, ypa_sd, attempts),
+    est_pass_epa = round(est_mean(prior_pass_epa, prior_pass_epa_sd, pass_epa, pass_epa_sd, attempts), 2),
+    est_pass_epa_sd = est_sd(prior_pass_epa_sd, pass_epa_sd, attempts)
+  )  %>%
+  mutate(int_alpha0 = as.numeric(x$estimate[1]),
+         int_beta0 = as.numeric(x$estimate[2]),
          int_alpha1 = ints + int_alpha0,
          int_beta1 = attempts + int_alpha0 + int_beta0,
-         est_int.rate = int_alpha1/int_beta1)
+         est_int.rate = int_alpha1/int_beta1
+  )
 
 sacks = pbp %>%
   filter(play_type == 'pass', two_point_attempt != 1) %>%
@@ -126,25 +140,36 @@ rushes = pbp %>%
             rush_yards = sum(yards_gained, na.rm = T),
             rush_tds = sum(same_td * touchdown, na.rm = T),
             rush_fum = sum(fumble_lost),
-            rush_sd = sd(yards_gained, na.rm = T)
+            rush_sd = sd(yards_gained, na.rm = T),
+            rush_epa = mean(epa, na.rm = T),
+            rush_epa_sd = sd(epa, na.rm = T)
             ) %>%
   mutate(ypc = rush_yards/carries,
          rush.td.perc = rush_tds/carries,
          rush.fum.perc = rush_fum/carries
-         )
+         ) %>%
+  left_join(., rosters %>% select(gsis_id, position), by = c("rusher_player_id"="gsis_id")) %>% 
+  filter(position == 'QB')
 
-m = MASS::fitdistr(rushes %>% filter(carries > 300) %>% pull(ypc), 'normal')
+#rushes = passes %>%
+#  left_join(., rushes, by = c("passer_player_id"="rusher_player_id"))
+
+m = MASS::fitdistr(rushes %>% filter(carries > 30) %>% pull(ypc), 'normal')
+n = MASS::fitdistr(rushes %>% filter(carries > 30) %>% pull(rush_epa), 'normal')
 
 rushes = rushes %>%
   mutate(
     prior_rush_mu = as.numeric(m$estimate[1]),
-    prior_rush_sd = as.numeric(m$estimate[2])
+    prior_rush_sd = as.numeric(m$estimate[2]),
+    prior_rush_epa = as.numeric(n$estimate[1]),
+    prior_rush_epa_sd = as.numeric(n$estimate[2])
   ) %>%
   mutate(
     eb_ypc = est_mean(prior_rush_mu, prior_rush_sd, ypc, rush_sd, carries),
-    eb_ypc_sd = est_sd(prior_rush_sd, rush_sd, carries)
-  ) %>%
-  filter(carries > 15)
+    eb_ypc_sd = est_sd(prior_rush_sd, rush_sd, carries),
+    est_rush_epa = round(est_mean(prior_rush_epa, prior_rush_epa_sd, rush_epa, rush_epa_sd, carries), 2),
+    est_rush_epa_sd = est_sd(prior_rush_epa_sd, rush_epa_sd, carries)
+  )
 
 qbs = passes %>%
   left_join(., rushes, by = c("passer_player_id"="rusher_player_id")) %>%
@@ -162,14 +187,5 @@ team_colors = read_csv("https://raw.githubusercontent.com/leesharpe/nfldata/mast
                                               ifelse(team == "LAC", color3, color2)))))) %>%
   left_join(., read_csv("https://raw.githubusercontent.com/leesharpe/nfldata/master/data/logos.csv"), by = "team")
 
-rosters = purrr::map_dfr(2019:2009, teams = pbp %>% distinct(posteam) %>% pull(posteam), nflscrapR::get_season_rosters)
-rosters_copy = rosters
-rosters_copy = rosters_copy %>% ungroup()
-rosters = rosters_copy[!duplicated(rosters_copy[,c(7)]),] %>%
-  select(gsis_id, full_player_name, team) %>%
-  mutate(team = ifelse(team == "JAC", "JAX",
-                       ifelse(team == "LA", "LAR", team))) %>%
+qbs = qbs %>% left_join(., rosters %>% select(-position), by = c("passer_player_id"="gsis_id")) %>%
   left_join(., team_colors %>% select(team, color, color2, team_logo) %>% rename(team_color=color, sec_color=color2), by = "team")
-
-qbs = qbs %>% left_join(., rosters, by = c("passer_player_id"="gsis_id"))
-
