@@ -1,10 +1,17 @@
 library(shiny)
 library(DT)
 library(scales)
+library(readr)
+library(plyr)
+library(dplyr)
+library(purrr)
+library(broom)
+library(ggplot2)
+library(nflscrapR)
 library(JLutils)
 
 ui <- fluidPage(theme = shinythemes::shinytheme("flatly"),
-    titlePanel("NFL QB Bayesian Stat Comparisons"),
+    titlePanel("NFL QB Bayesian Statistical Comparisons"),
     tabsetPanel(
       tabPanel("Tool",
                helpText("Note: QBs below are grouped by the season they recorded their first offensive stat.
@@ -51,6 +58,7 @@ ui <- fluidPage(theme = shinythemes::shinytheme("flatly"),
                uiOutput("how_this_works_text1"),
                img(src="graph.png"),
                uiOutput("how_this_works_text2"),
+               img(src="tbl.png"),
                img(src='comp.png'),
                br(),
                uiOutput("how_this_works_text3"),
@@ -115,13 +123,29 @@ server <- function(input, output, session) {
                     mutate(density = dnorm(x, eb_ypc, eb_ypc_sd),
                            prior = dnorm(x, prior_rush_mu, prior_rush_sd),
                            type = 'ypc')
-            )
+          ) %>%
+          bind_rows(
+            selected_qb_df %>%
+              tidyr::crossing(x = seq(-1, 1, 0.002)) %>%
+              ungroup() %>%
+              mutate(density = dnorm(x, est_pass_epa, est_pass_epa_sd),
+                     prior = dnorm(x, prior_pass_epa, prior_pass_epa_sd),
+                     type = 'pass.epa')
+          ) %>%
+          bind_rows(
+            selected_qb_df %>%
+              tidyr::crossing(x = seq(-1, 1, 0.002)) %>%
+              ungroup() %>%
+              mutate(density = dnorm(x, est_rush_epa, est_rush_epa_sd),
+                     prior = dnorm(x, prior_rush_epa, prior_rush_epa_sd),
+                     type = 'rush.epa')
+          )
     })
     
     output$plt <- renderPlot({
         tableProxy %>% selectRows(NULL)
         asdf = data()
-        asdf$type_f = factor(asdf$type, levels = c("ypa", "sack.rate", "ypc", "int.rate" ))
+        asdf$type_f = factor(asdf$type, levels = c("pass.epa", "ypa", "sack.rate", "rush.epa", "ypc", "int.rate"))
         ggplot(asdf, aes(group = full_player_name)) +
             geom_line(aes(x, density, color = team_color), size = 1.5, alpha = 0.9) +
             geom_ribbon(aes(x, ymin = 0, ymax = density, fill = team_color), alpha = 0.3) +
@@ -149,7 +173,7 @@ server <- function(input, output, session) {
       )
       df = qbs %>%
         filter(full_player_name %in% input$select_player) %>%
-        select(full_player_name, team, attempts, eb_ypa, carries, eb_ypc, est_sack.rate, est_int.rate, team_color, sec_color) %>%
+        select(full_player_name, team, attempts, ypa, eb_ypa, carries, ypc, eb_ypc, est_sack.rate, est_int.rate, est_pass_epa, est_rush_epa, team_color, sec_color) %>%
         rename(Player=full_player_name, last_team=team, 
                est_ypa=eb_ypa, est_ypc=eb_ypc, est_sack.perc=est_sack.rate, est_int.perc=est_int.rate)
     })
@@ -161,7 +185,7 @@ server <- function(input, output, session) {
                     , selection = list(mode = 'multiple', selected = rV$sel)) %>% 
         formatStyle('team_color', target = 'row', backgroundColor = JS("value")) %>%
         formatStyle('sec_color', target = 'row', color = JS("value"), fontWeight = 'bold') %>%
-        formatRound(c('est_ypa', 'est_ypc'), 2) %>%
+        formatRound(c('est_ypa', 'est_ypc', 'ypa', 'ypc'), 2) %>%
         formatPercentage(c('est_sack.perc', 'est_int.perc'), 1)
     })
     
@@ -189,12 +213,17 @@ server <- function(input, output, session) {
         stat = c(rep("YPA", 2),
                  rep("YPC", 2),
                  rep("INT%",2),
-                 rep("SK%", 2)),
-        player = c(rep(c(player1, player2), 4)),
+                 rep("SK%", 2),
+                 rep("EPA.PASS", 2),
+                 rep("EPA.RUSH", 2)
+                 ),
+        player = c(rep(c(player1, player2), 6)),
         value = c(sim_norm(player1, player2, qbs, 'eb_ypa', 'eb_ypa_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypa', 'eb_ypa_sd'),
                   sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'),
                   1 - sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'), sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'),
-                  1 - sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'), sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'))) %>% 
+                  1 - sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'), sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'),
+                  sim_norm(player1, player2, qbs, 'est_pass_epa', 'est_pass_epa_sd'), 1 - sim_norm(player1, player2, qbs, 'est_pass_epa', 'est_pass_epa_sd'),
+                  sim_norm(player1, player2, qbs, 'est_rush_epa', 'est_rush_epa_sd'), 1 - sim_norm(player1, player2, qbs, 'est_rush_epa', 'est_rush_epa_sd'))) %>% 
         dplyr::mutate(player = as.character(player),
                       value = value * 100) %>%
         dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color, sec_color, team_logo), by = c("player"="full_player_name"))
@@ -202,7 +231,7 @@ server <- function(input, output, session) {
         player2_sec_color = unique(plotting_df$sec_color[plotting_df$player == player2])
         plotting_df$team_color[plotting_df$player == player2] = player2_sec_color
       }
-      plotting_df$stat = factor(plotting_df$stat, levels = c("INT%", "SK%", "YPC", "YPA"))
+      plotting_df$stat = factor(plotting_df$stat, levels = c("INT%", "SK%", "YPC", "EPA.RUSH", "YPA", "EPA.PASS"))
       plotting_df
     })
     
@@ -244,32 +273,38 @@ server <- function(input, output, session) {
         )
     })
     
-    output$how_this_works_text1 = renderText({  
-      HTML(paste0("This tool was built to look at Bayesian concepts across commonly used quarterback statistics. We tend to evaluate these QB stats based on one number, usually the average. For example, a person may look at a boxscore after a season and see that QB A has a YPA (yards per attempt) of 7.8 and QB B has a YPA of 7.2; therefore, one may conclude QB A\'s \"true YPA\" is better than QB B. However, from a Bayesian stand point, we are missing a lot of information. Sample size, standard deviation, and prior information are also important to consider when looking at statistics.</br></br>
-           Inspired by some of Kevin Cole (", a('@KevinColePFF', href = "https://twitter.com/KevinColePFF/"), ") and David Robinson\'s (", a('@drob', href = "https://twitter.com/drob/"), ") work, I decided to make a Shiny application that can view the posterior distributions of the most common quarterback stats we use nowadays: yards per attempt (YPA), yards per carry (YPC), sack rate (Sack.Perc/Sack.Rate), and interception rate (Int.Rate/Int.Perc). We can visualize how confident we are for every player\'s \"true\" value for each stat category. 
+    output$how_this_works_text1 = renderText({
+      HTML(paste0("This tool was built to look at Bayesian concepts across commonly used quarterback statistics. We tend to evaluate these QB stats based on one number, usually the average. For example, a person may look at a boxscore after a season and see that QB A has a YPA (yards per attempt) of 7.8 and QB B has a YPA of 7.2; therefore, one may conclude QB A\'s \"true YPA\" is better than QB B. 
+           However, from a Bayesian stand point, we are missing a lot of information. Sample size, standard deviation, and prior information are also important to consider when looking at statistics.</br></br>
+           Inspired by some of Kevin Cole (", a('@KevinColePFF', href = "https://twitter.com/KevinColePFF/"), ") and David Robinson\'s (", a('@drob', href = "https://twitter.com/drob/"), ") work, I decided to make a Shiny application that can view the posterior distributions of the most common quarterback stats we use nowadays: YPA, yards per carry (YPC), sack rate (Sack.Perc/Sack.Rate), and interception rate (Int.Rate/Int.Perc). We can visualize how confident we are for every player\'s \"true\" value for each stat category. 
            The dotted line in the graph shows the distribution of the priors for every QB. For YPA and YPC, I used the normal distribution to calculate the priors and evenutally the posteriors; I used the beta distribution for Sack.Rate and Int.Rate.</br></br>"))
     })
     
     output$how_this_works_text2 = renderText({
-      HTML(paste0("For each of these distributions, I assumed the priors were the same across all quarterbacks. If you read Kevin Cole\'s articles on Pro Football Focus (", a("https://www.pff.com/news/nfl-2018-draft-class-qbs-future", href="https://www.pff.com/news/nfl-2018-draft-class-qbs-future"),"), he uses different priors depending on where the QB was drafted. This is something that I may want to include in the future, but for now, I have assumed all quarterbacks come from the same distribution for each statistic.</br></br>
-                  The table (and graph) shows the estimated \"true\" stat for each category based on the empirical priors (", a("http://varianceexplained.org/r/empirical_bayes_baseball/", href="http://varianceexplained.org/r/empirical_bayes_baseball/"),"), along with the quarterback's mean, standard deviation, and sample size for each statistic.</br></br>
+      HTML(paste0("For each of these stats, I assumed the priors were the same across all quarterbacks. If you read Kevin Cole\'s articles on Pro Football Focus (", a("https://www.pff.com/news/nfl-2018-draft-class-qbs-future", href="https://www.pff.com/news/nfl-2018-draft-class-qbs-future"),"), he uses different priors depending on where the QB was drafted. This is something that I may want to include in the future.</br></br>
+                  The table (and graph) shows the estimated \"true\" stat for each category based on the empirical information (", a("http://varianceexplained.org/r/empirical_bayes_baseball/", href="http://varianceexplained.org/r/empirical_bayes_baseball/"),") from the quarterbacks career. I filtered out QB spikes and kneels for attempts and carries.</br></br>
+                  
                   Going back to the example above, another question we want to answer is how much better QB A is than QB B? Using Bayesian statistics, we can quantify this (", a("http://varianceexplained.org/r/bayesian_ab_baseball/", href="http://varianceexplained.org/r/bayesian_ab_baseball/"),"). 
-                  When selecting two of the quarterbacks in the table and hitting the \"Compare Stats\" button, we can view how confident we are that QB A is better (or worse) than QB B in each statistcal category.
-                  In the example below, we have selected Dwayne Haskins and Daniel Jones after their rookie seasons. We can see as of now, we're more confident that Daniel Jones's true stats are better than Dwayne Haskins except for YPA. 
-                  Another way we can read this graph is to say there is a 57% chance that Dwayne Haskins has a better \"true\" YPA than Daniel Jones.</br></br>"))
+                  <b>When you click two quarterbacks in the table and hit the \"Compare Stats\" button</b>, we can view how confident we are that QB A is better (or worse) than QB B in each statistcal category.</br>
+                  "))
     })
     
     output$how_this_works_text3 = renderText({
-      HTML(paste0("One of the things I value in data analyses is the ability to make things reproducible. The code for this application can be found here: ", a('https://github.com/austingrosel/NFLBayes', href = "https://github.com/austingrosel/NFLBayes"), ". As of now, the application is not 100% reproducible because it assumes you have the same R and package versions as I do right now. Hopefully I\'ll be able to get a Dockerfile into the GitHub repository sooner than later.</br></br>
+      HTML(paste0("</br></br>In the our example, we have selected Dwayne Haskins and Daniel Jones after their rookie seasons. We can see as of now, we're more confident that Daniel Jones's true stats are better than Dwayne Haskins except for YPA. 
+                  Another way we can read this graph is to say there is a 57% chance that Dwayne Haskins has a better \"true\" YPA than Daniel Jones.</br></br>
+                  
+                  One of the things I value in data analyses is the ability to make things reproducible. The code for this application can be found here: ", a('https://github.com/austingrosel/NFLBayes', href = "https://github.com/austingrosel/NFLBayes"), ". 
+                  As of now, the application is not 100% reproducible because it assumes you have the same R and package versions as I do right now. Hopefully I\'ll be able to get a Dockerfile into the GitHub repository sooner than later.</br></br>
                   
                   <b>Next steps</b>:</br>
                   1. As I mentioned earlier, can we adjust each player\'s prior based on draft position and possibly college statistics? Does this help our framework?</br>
-                  2. Can we use model more \"advanced\" statistics like EPA or QBR?</br></br>
+                  2. Can we model more \"advanced\" statistics like EPA or QBR?</br></br>
                   
                   <b>Limitations</b>:</br>
                   1. My educational background comes from computer science, not statistics, and especially not Bayesian statistics. The things that I\'ve learned from Bayesian statistics I\'ve had to read and re-read over and over again. There is a significant possibility I\'ve messed some things up!</br>
                   2. I chose to evaluate QB rushing ability using YPC out of simplicity. I\'d presume rushing yards is probably a better indicator of a quarterback's rushing ability. However, I'd have to create a Poisson model to get rushing attempts, and I didn't want to get rid of the four panel graphs.
-                  "))
+                  ")
+           )
     })
     
     output$ack_text = renderUI({
