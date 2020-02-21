@@ -122,30 +122,30 @@ server <- function(input, output, session) {
                     ungroup() %>%
                     mutate(density = dnorm(x, eb_ypc, eb_ypc_sd),
                            prior = dnorm(x, prior_rush_mu, prior_rush_sd),
-                           type = 'ypc')
-          ) %>%
-          bind_rows(
-            selected_qb_df %>%
-              tidyr::crossing(x = seq(-1, 1, 0.002)) %>%
-              ungroup() %>%
-              mutate(density = dnorm(x, est_pass_epa, est_pass_epa_sd),
-                     prior = dnorm(x, prior_pass_epa, prior_pass_epa_sd),
-                     type = 'pass.epa')
-          ) %>%
-          bind_rows(
-            selected_qb_df %>%
-              tidyr::crossing(x = seq(-1, 1, 0.002)) %>%
-              ungroup() %>%
-              mutate(density = dnorm(x, est_rush_epa, est_rush_epa_sd),
-                     prior = dnorm(x, prior_rush_epa, prior_rush_epa_sd),
-                     type = 'rush.epa')
-          )
+                           type = 'ypc'))
+          # %>%
+          # bind_rows(
+          #   selected_qb_df %>%
+          #     tidyr::crossing(x = seq(-1, 1, 0.002)) %>%
+          #     ungroup() %>%
+          #     mutate(density = dnorm(x, est_pass_epa, est_pass_epa_sd),
+          #            prior = dnorm(x, prior_pass_epa, prior_pass_epa_sd),
+          #            type = 'pass.epa')
+          # ) %>%
+          # bind_rows(
+          #   selected_qb_df %>%
+          #     tidyr::crossing(x = seq(-1, 1, 0.002)) %>%
+          #     ungroup() %>%
+          #     mutate(density = dnorm(x, est_rush_epa, est_rush_epa_sd),
+          #            prior = dnorm(x, prior_rush_epa, prior_rush_epa_sd),
+          #            type = 'rush.epa')
+          # )
     })
     
     output$plt <- renderPlot({
         tableProxy %>% selectRows(NULL)
         asdf = data()
-        asdf$type_f = factor(asdf$type, levels = c("pass.epa", "ypa", "sack.rate", "rush.epa", "ypc", "int.rate"))
+        asdf$type_f = factor(asdf$type, levels = c("ypa", "sack.rate", "ypc", "int.rate"))
         ggplot(asdf, aes(group = full_player_name)) +
             geom_line(aes(x, density, color = team_color), size = 1.5, alpha = 0.9) +
             geom_ribbon(aes(x, ymin = 0, ymax = density, fill = team_color), alpha = 0.3) +
@@ -173,7 +173,7 @@ server <- function(input, output, session) {
       )
       df = qbs %>%
         filter(full_player_name %in% input$select_player) %>%
-        select(full_player_name, team, attempts, ypa, eb_ypa, carries, ypc, eb_ypc, est_sack.rate, est_int.rate, est_pass_epa, est_rush_epa, team_color, sec_color) %>%
+        select(full_player_name, team, attempts, ypa, eb_ypa, carries, ypc, eb_ypc, est_sack.rate, est_int.rate, team_color, sec_color) %>%
         rename(Player=full_player_name, last_team=team, 
                est_ypa=eb_ypa, est_ypc=eb_ypc, est_sack.perc=est_sack.rate, est_int.perc=est_int.rate)
     })
@@ -213,17 +213,18 @@ server <- function(input, output, session) {
         stat = c(rep("YPA", 2),
                  rep("YPC", 2),
                  rep("INT%",2),
-                 rep("SK%", 2),
-                 rep("EPA.PASS", 2),
-                 rep("EPA.RUSH", 2)
+                 rep("SK%", 2)#,
+                 #rep("EPA.PASS", 2),
+                 #rep("EPA.RUSH", 2)
                  ),
-        player = c(rep(c(player1, player2), 6)),
+        player = c(rep(c(player1, player2), 4)),
         value = c(sim_norm(player1, player2, qbs, 'eb_ypa', 'eb_ypa_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypa', 'eb_ypa_sd'),
                   sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'), 1 - sim_norm(player1, player2, qbs, 'eb_ypc', 'eb_ypc_sd'),
                   1 - sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'), sim_beta(player1, player2, qbs, 'int_alpha1', 'int_beta1'),
-                  1 - sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'), sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'),
-                  sim_norm(player1, player2, qbs, 'est_pass_epa', 'est_pass_epa_sd'), 1 - sim_norm(player1, player2, qbs, 'est_pass_epa', 'est_pass_epa_sd'),
-                  sim_norm(player1, player2, qbs, 'est_rush_epa', 'est_rush_epa_sd'), 1 - sim_norm(player1, player2, qbs, 'est_rush_epa', 'est_rush_epa_sd'))) %>% 
+                  1 - sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1'), sim_beta(player1, player2, qbs, 'sack_alpha1', 'sack_beta1')
+                  #sim_norm(player1, player2, qbs, 'est_pass_epa', 'est_pass_epa_sd'), 1 - sim_norm(player1, player2, qbs, 'est_pass_epa', 'est_pass_epa_sd'),
+                  #sim_norm(player1, player2, qbs, 'est_rush_epa', 'est_rush_epa_sd'), 1 - sim_norm(player1, player2, qbs, 'est_rush_epa', 'est_rush_epa_sd')
+                  )) %>% 
         dplyr::mutate(player = as.character(player),
                       value = value * 100) %>%
         dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color, sec_color, team_logo), by = c("player"="full_player_name"))
@@ -231,13 +232,13 @@ server <- function(input, output, session) {
         player2_sec_color = unique(plotting_df$sec_color[plotting_df$player == player2])
         plotting_df$team_color[plotting_df$player == player2] = player2_sec_color
       }
-      plotting_df$stat = factor(plotting_df$stat, levels = c("INT%", "SK%", "YPC", "EPA.RUSH", "YPA", "EPA.PASS"))
+      plotting_df$stat = factor(plotting_df$stat, levels = c("INT%", "SK%", "YPC", "YPA"))
       plotting_df
     })
     
     players_df = reactive({
       validate(
-        need(length(rV$selected_players[!is.na(rV$selected_players)]) == 2, 'Need to select two players and click the button to compare.')
+        need(length(rV$selected_players[!is.na(rV$selected_players)]) == 2, 'Need to select two players in the table and click the button to compare.')
       )
       comparison_data() %>% distinct(player, .keep_all = T) %>% arrange(desc(team_color))
     })
