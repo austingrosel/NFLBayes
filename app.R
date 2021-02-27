@@ -7,8 +7,8 @@ library(dplyr)
 library(purrr)
 library(broom)
 library(ggplot2)
-library(nflscrapR)
-library(JLutils)
+library(nflfastR)
+#library(JLutils)
 
 ui <- fluidPage(theme = shinythemes::shinytheme("flatly"),
     titlePanel("NFL QB Bayesian Statistical Comparisons"),
@@ -75,9 +75,9 @@ server <- function(input, output, session) {
     
     observe({
       qb_list = qbs %>% 
-        arrange(full_player_name) %>%
+        arrange(full_name) %>%
         split(., .[,'est_draft_year']) %>% 
-        lapply(., function(x) x %>% pull('full_player_name'))
+        lapply(., function(x) x %>% pull('full_name'))
       qb_list = qb_list[order(names(qb_list), decreasing = T)]
       updateSelectInput(session,
                         "select_player", 
@@ -91,7 +91,7 @@ server <- function(input, output, session) {
         )
         
         selected_qb_df <- qbs %>%
-            filter(full_player_name %in% input$select_player)
+            filter(full_name %in% input$select_player)
         
         bayes_df <- selected_qb_df %>%
             tidyr::crossing(x = seq(1, 10, 0.02)) %>%
@@ -146,7 +146,7 @@ server <- function(input, output, session) {
         tableProxy %>% selectRows(NULL)
         asdf = data()
         asdf$type_f = factor(asdf$type, levels = c("ypa", "sack.rate", "ypc", "int.rate"))
-        ggplot(asdf, aes(group = full_player_name)) +
+        ggplot(asdf, aes(group = full_name)) +
             geom_line(aes(x, density, color = team_color), size = 1.5, alpha = 0.9) +
             geom_ribbon(aes(x, ymin = 0, ymax = density, fill = team_color), alpha = 0.3) +
             geom_line(aes(x, prior), color = 'black', lty = 2) +
@@ -172,9 +172,18 @@ server <- function(input, output, session) {
         need(length(input$select_player) > 0, 'Select a player.')
       )
       df = qbs %>%
-        filter(full_player_name %in% input$select_player) %>%
-        select(full_player_name, team, attempts, ypa, eb_ypa, carries, ypc, eb_ypc, est_sack.rate, est_int.rate, team_color, sec_color) %>%
-        rename(Player=full_player_name, last_team=team, 
+        filter(full_name %in% input$select_player) %>%
+        select(full_name, team, 
+               eb_ypa, eb_ypa_percentile,
+               eb_ypc, eb_ypc_percentile,
+               est_sack.rate, est_sack.rate_percentile, 
+               est_int.rate, est_int.rate_percentile,
+               team_color, sec_color) %>%
+        rename(Player=full_name, last_team=team, 
+               ypa_perc = eb_ypa_percentile,
+               ypc_perc = eb_ypc_percentile,
+               sack_perc = est_sack.rate_percentile,
+               int_perc = est_int.rate_percentile,
                est_ypa=eb_ypa, est_ypc=eb_ypc, est_sack.perc=est_sack.rate, est_int.perc=est_int.rate)
     })
     
@@ -185,7 +194,7 @@ server <- function(input, output, session) {
                     , selection = list(mode = 'multiple', selected = rV$sel)) %>% 
         formatStyle('team_color', target = 'row', backgroundColor = JS("value")) %>%
         formatStyle('sec_color', target = 'row', color = JS("value"), fontWeight = 'bold') %>%
-        formatRound(c('est_ypa', 'est_ypc', 'ypa', 'ypc'), 2) %>%
+        formatRound(c('est_ypa', 'est_ypc'), 2) %>%
         formatPercentage(c('est_sack.perc', 'est_int.perc'), 1)
     })
     
@@ -227,7 +236,7 @@ server <- function(input, output, session) {
                   )) %>% 
         dplyr::mutate(player = as.character(player),
                       value = value * 100) %>%
-        dplyr::left_join(., qbs %>% dplyr::select(full_player_name, team_color, sec_color, team_logo), by = c("player"="full_player_name"))
+        dplyr::left_join(., qbs %>% dplyr::select(full_name, team_color, sec_color, team_logo), by = c("player"="full_name"))
       if(length(unique(plotting_df$team_color)) == 1) {
         player2_sec_color = unique(plotting_df$sec_color[plotting_df$player == player2])
         plotting_df$team_color[plotting_df$player == player2] = player2_sec_color
